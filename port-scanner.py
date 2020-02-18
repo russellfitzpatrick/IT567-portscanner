@@ -1,6 +1,8 @@
 import argparse
 import ipaddress
 
+from scapy.all import *
+
 
 class AddressChecker(argparse.Action):
 	
@@ -169,22 +171,63 @@ class CheckPorts(argparse.Action):
 				parser.error("Invalid port " + port)
 
 
+
+def ICMP_scan(ips, ports):
+	default_timeout = 2
+
+	ans, unans = sr(IP(dst=ips)/ICMP(), timeout=default_timeout) 
+	return ans.summary(lambda (s,r): r.sprintf("%IP.src% is alive") )
+
+def TCP_scan(ips, ports):
+	default_timeout = 2
+
+	res, unans = sr( IP(dst=ips)
+                /TCP(flags="S", dport=ports, sport=RandShort()), timeout=default_timeout )
+	return res.nsummary( lfilter=lambda (s,r): (r.haslayer(TCP) and (r.getlayer(TCP).flags & 2)) )
+
+def UDP_scan(ips, ports):
+	default_timeout = 2
+
+	res, unans = sr( IP(dst=ips)
+                /UDP(flags="S", dport=ports, sport=RandShort()), timeout=default_timeout )
+	return res.nsummary( lfilter=lambda (s,r): (r.haslayer(UDP)) )
+
+
+def produce_report(results):
+	return "<p>" + results + "</p>"
+
+
 def main():
 	parser = argparse.ArgumentParser(description='Port-Scanner using Scapy')
 
-	parser.add_argument('-t', '--type', default='tcp', choices=['tcp', 'udp', 'icmp'], 				help='Type of scan to be run')
-	parser.add_argument('-a', '--address', action=AddressChecker, help='Host to scan', required=True)
-	parser.add_argument('-p', '--port', action=CheckPorts, help='Port to scan', required=True)
+	parser.add_argument('-t', '--type', default='tcp', choices=['tcp', 'udp', 'icmp'], help='Type of scan to be run')
+	parser.add_argument('-a', '--address', action=AddressChecker, help='Host to scan')
+	parser.add_argument('-p', '--port', action=CheckPorts, help='Port to scan')
+	parser.add_argument('-o', '--output', help='Html file for results')
+	parser.add_argument('-g', '--gui', action='store_true', help='Starts gui, cannot be used with other tags')
 
 	args = parser.parse_args()
+	if args.gui and (args.address or args.port or args.output):
+		parser.error("--gui flag cannot be used with other arguments")
 
+	if (args.address and not args.port) or (args.port and not args.address):
+		parser.error("Must have both ports and addresses")
 
 	print(args.type)
 	print(args.address)
 	print(args.port)
 
+	results = None
 
-	parser.print_help()
+	if type == 'tcp':
+		results = TCP_scan(args.address, args.port)
+	elif type == 'udp':
+		results = UDP_scan(args.address, args.port)
+	elif type == 'icmp':
+		results = ICMP_scan(args.address, args.port)
+
+	formatted_results = produce_report(results)
+
 
 
 if __name__ == "__main__":
