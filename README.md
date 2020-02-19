@@ -2,14 +2,14 @@
 
 Must be run with python3!!!
 
-run using the following command:
+Run using the following command:
 
 python3 port-scanner.py
 
 The following are the flags to use:
 
       -h: Help text
-      -g: Starts GUI. Cannot be used with any other flags
+      -g: Starts GUI. Cannot be used with any other flags. Does not take input
       -t: The type of scan to run. Defaults to tcp. Options are tcp, udp, icmp, trace
       -a: IP Address option. Can be a single IP Address, comma-separated IP Addresses (192.168.1.1,192.168.1.2), a range (192.168.1.1-192.168.1.2), a subnet (192.168.1.0/24), or a file with each IP addresses on a new line
       -p: Port option. Can be a single port, a comma-separated port list (22,80), or a range (22-1024)
