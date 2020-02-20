@@ -4,9 +4,11 @@ import ipaddress
 from scapy.all import *
 from tkinter import *
 
+# A class for building and operating the GUI
 
 class GUI:
 
+    #Produces the actual GUI
     def __init__(self, master):
         self.master = master
 
@@ -68,21 +70,23 @@ class GUI:
 
         lbl_scan = Label(frame5, text="Type of scan to be run", width=36)
 
-        self.selected = IntVar()
-        self.selected.set(1)
+        self.selected = StringVar()
+        self.selected.set('tcp')
 
 
         frame6 = Frame(frame5)
         lbl_scan.pack(side=LEFT, padx=5, pady=5)
         frame6.pack(fill=X, padx=5)
 
-        rad1 = Radiobutton(frame6,text='TCP', value=1, variable=self.selected)
-        rad2 = Radiobutton(frame6,text='UDP', value=2, variable=self.selected)
-        rad3 = Radiobutton(frame6,text='ICMP', value=3, variable=self.selected)
+        rad1 = Radiobutton(frame6,text='TCP', value='tcp', variable=self.selected)
+        rad2 = Radiobutton(frame6,text='UDP', value='udp', variable=self.selected)
+        rad3 = Radiobutton(frame6,text='ICMP', value='icmp', variable=self.selected)
+        rad4 = Radiobutton(frame6,text='Trace', value='trace', variable=self.selected)
 
         rad1.pack( side=TOP )
         rad2.pack( side=TOP )
         rad3.pack( side=TOP )
+        rad4.pack( side=TOP )
 
         frame7 = Frame(self.master)
         frame7.pack(fill=X)
@@ -100,46 +104,56 @@ class GUI:
         self.results.pack(fill=BOTH, pady=5, padx=5, expand=True)
 
 
+#This is for convenience to update the results text box with the results
 
-        def update_text(self, new_text):
-            self.results.configure(state='normal')
-            self.results.delete("1.0", END)
-            self.results.insert(END, new_text)
-            self.results.configure(state='disabled')
-
-
-
-        def clicked(self):
-            self.update_text('Running scan')
-            error, addresses = Parse_addresses(self.addresses.get())
-            if error:
-                self.update_text(addresses)
-            error, ports = Parse_ports(self.ports.get())
-            if error:
-                self.update_text(ports)
-
-            option = self.selected.get()
-            if option == 1:
-                results = TCP_scan(addresses, ports)
-            elif option == 2:
-                results = UDP_scan(addresses, ports)
-            elif option == 3:
-                results = ICMP_scan(addresses, ports)
+    def update_text(self, new_text):
+        self.results.configure(state='normal')
+        self.results.delete("1.0", END)
+        self.results.insert(END, new_text)
+        self.results.configure(state='disabled')
 
 
+#This runs the scan when the button is clicked
 
-        def myfunction(self, *args):
-            x = self.addresses.get()
-            y = self.ports.get()
-            z = self.output_file.get()
-            if x and y and z:
-                self.btn.config(state='normal')
-            else:
-                self.btn.config(state='disabled')
+    def clicked(self):
+        self.update_text('Running scan')
+        error, addresses = Parse_addresses(self.addresses.get())
+        if error:
+            self.update_text(addresses)
+        error, ports = Parse_ports(self.ports.get())
+        if error:
+            self.update_text(ports)
+
+        results = None
+        html = None
+        option = self.selected.get()
+        if option == 'tcp':
+            html, results = TCP_scan(addresses, ports)
+        elif option == 'udp':
+            html, results = UDP_scan(addresses, ports)
+        elif option == 'icmp':
+            html, results = ICMP_scan(addresses, ports)
+        elif option == 'trace':
+            html, results = TraceRoute(addresses, ports)
+
+        produce_report(option, html, self.output_file.get())
+
+        self.update_text(results)
+
+#Enables the button if all the inputs are filled
+
+    def myfunction(self, *args):
+        x = self.addresses.get()
+        y = self.ports.get()
+        z = self.output_file.get()
+        if x and y and z:
+            self.btn.config(state='normal')
+        else:
+            self.btn.config(state='disabled')
 
 
 
-
+#This is needed by argparse to parse the addresses given on the command line.
 
 class AddressChecker(argparse.Action):
 
@@ -153,6 +167,7 @@ class AddressChecker(argparse.Action):
         setattr(namespace, self.dest, addresses)
 
 
+#Largest function. It just takes the IP address input an parses it into a list of IPs. This can be a comma-separated list, a subnet, a range or one IP address, or any combination of those.
 
 def Parse_addresses(address):
     if ',' in address:
@@ -261,7 +276,7 @@ def Parse_addresses(address):
 
 
 
-
+#This is just an action that is needed by argparse to parse the commandline results.
 
 class CheckPorts(argparse.Action):
 
@@ -273,6 +288,8 @@ class CheckPorts(argparse.Action):
             parser.error(ports)
         setattr(namespace, self.dest, ports)
 
+
+#This takes the input and parses it. It checks for ranges or comma separated lists. It creates a list of all the ports and ranges provided
 
 def Parse_ports(port):
     if ',' in port:
@@ -322,12 +339,13 @@ def Parse_ports(port):
             if int(port) > 65535 or int(port) < 1:
                 return True, "Invalid port " + port
 
-            return False, int(port)
+            return False, [int(port)]
         except:
             return True, "Invalid port " + port
 
 
 
+#Simple ICMP echo scan. Takes a list of IPs and runs a ping sweep on them. Ports not necessary here.
 
 def ICMP_scan(ips, ports):
     default_timeout = 2
@@ -335,14 +353,56 @@ def ICMP_scan(ips, ports):
     ans, unans = sr(IP(dst=ips)/ICMP(), timeout=default_timeout)
     ans.summary(lambda r: r[1].sprintf("%IP.src% is alive") )
 
+    html = """<tr>
+        <th>IP Address</th>
+        <th>Is Alive</th>
+    </tr>
+    """
+
+    result = ""
+    for res,na in ans:
+        html += "<tr><td>{}</td><td>Yes</td></tr>".format(na.src)
+        result += "{} is alive\n".format(na.src)
+
+    return html, result
+
+#TCP Syn port scan. Takes a list of IPs and ports to scan
+
 def TCP_scan(ips, ports):
     default_timeout = 2
 
     res, unans = sr( IP(dst=ips)
             /TCP(flags="S", dport=ports, sport=RandShort()), timeout=default_timeout )
-    result = res.filter( lambda r: (r[1].haslayer(TCP) and (r[1].getlayer(TCP).flags & 2)) ).make_table(lambda s: (s[0].dst, s[0].dport, "Open"))
-    print(result)
-    return result
+    res.filter( lambda r: (r[1].haslayer(TCP) and (r[1].getlayer(TCP).flags & 2)) ).make_table(lambda s: (s[0].dst, s[0].dport, "Open"))
+    html = """    <tr>
+        <th>IP Address</th>
+        <th>Open Ports</th>
+    </tr>
+    """
+    result = ""
+    results = {}
+    for (na,ans) in res:
+        if ans.haslayer(TCP) and ans.getlayer(TCP).flags & 2:
+            if not na.dst in results:
+                results[na.dst] = []
+            results[na.dst].append(na.dport)
+
+    for x, y in results.items():
+        html += """<tr>
+        <th rowspan='{}'>{}</th> 
+        """.format(len(y), x)
+
+        result += "Results for {}\n".format(x)
+
+        for port in y:
+            html += """<td>{}</td></tr><tr>""".format(port)
+            result += "{} is open\n".format(port)
+
+        html += "</tr>"
+
+    return html, result
+
+#UDP port scan. Not very reliable. Takes a list of ips and ports to scan
 
 def UDP_scan(ips, ports):
     default_timeout = 2
@@ -351,43 +411,143 @@ def UDP_scan(ips, ports):
             /UDP(dport=ports, sport=RandShort()), timeout=default_timeout )
     res.nsummary( )
 
+    html = """    <tr>
+        <th>IP Address</th>
+        <th>Potentially Open Ports</th>
+    </tr>
+    """
+    result = ""
 
-def produce_report(results):
-    return "<p>" + results + "</p>"
+    results = {}
+    
+    for ans, na in res:
+        if na.haslayer(UDP) and not na.haslayer(ICMP):
+            if not na.dst in results:
+                results[na.dst] = []
+            results[na.dst].append(na.dport)
+    for ans, na in unans:
+        if not na.dst in results:
+            results[na.dst] = []
+        results[na.dst].append(na.dport)
+    for x, y in results.items():
+        html += """<tr>
+        <th> rowspan='{}'>{}</th>
+        """.format(len(y), x)
+
+        result += "Results for {}\n".format(x)
+
+        for port in y:
+            html += """<td>{}</td></tr><tr>""".format(port)
+            result += "{} is potentially open\n".format(port)
+
+        html += "</tr>"
+    
+
+
+    return html, result
+
+#Traceroute scan. Needs only one port and IP address
+
+def TraceRoute(ips, ports):
+    ans, unans = sr(IP(dst=ips[0],ttl=(1,10))/TCP(dport=ports[0], flags='S'))
+
+    ans.summary()
+
+    result = ""
+    html = """    <tr>
+        <th>IP Address</th>
+        <th>Response</th>
+        <th>TTL</th>
+    </tr>
+    """
+    ttl = 1
+    for res,na in ans:
+        result += na.sprintf("%IP.src%\t{ICMP:%ICMP.type%}\t{TCP:%TCP.flags%}\n")
+        html += "<tr><td>{}</td><td>{}</td><td>{}</td></tr>".format(na[IP].src, na[TCP].flags, ttl)
+        ttl += 1
+
+    return html, result
+
+
+#Final formatting for the HTML Report
+
+def produce_report(scan, results, output_file):
+    html_doc = """<html>
+    <head>
+    <title>Report</title>
+    <style>
+table, th, td {
+  border: 1px solid black;
+}
+</style>
+    </head>
+    <body>
+    <h1>%s Scan Results</h1>
+    <table id='reportTable' cellpadding='10'>
+    %s
+    </table>
+    </body>
+    </html>
+    """
+    html_doc = html_doc % (scan, results)
+
+    f = open(output_file, 'w')
+    f.write(html_doc)
+    f.close()
 
 
 def main():
+    
+#Creates the argparser which parses the command line
+
     parser = argparse.ArgumentParser(description='Port-Scanner using Scapy')
 
-    parser.add_argument('-t', '--type', default='tcp', choices=['tcp', 'udp', 'icmp'], help='Type of scan to be run')
+    parser.add_argument('-t', '--type', default='tcp', choices=['tcp', 'udp', 'icmp', 'trace'], help='Type of scan to be run')
     parser.add_argument('-a', '--address', action=AddressChecker, help='Host to scan')
     parser.add_argument('-p', '--port', action=CheckPorts, help='Port to scan')
     parser.add_argument('-o', '--output', help='Html file for results')
     parser.add_argument('-g', '--gui', action='store_true', help='Starts gui, cannot be used with other tags')
 
+#Error checking. A lot happens in the parsers
+
     args = parser.parse_args()
     if args.gui and (args.address or args.port or args.output):
         parser.error("--gui flag cannot be used with other arguments")
 
-    if not args.address:
-        parser.error("Addresses are needed")
-    if (args.address and not args.port) and args.type != 'icmp':
-        parser.error("Must have both ports and addresses " + args.type + " scan")
-    results = None
+#Starts the GUI if that is what is specified
     if args.gui:
         window = Tk()
         window.geometry('1000x750')
         app = GUI(window)
         window.mainloop()
 
-    if args.type == 'tcp':
-        results = TCP_scan(args.address, args.port)
-    elif args.type == 'udp':
-        results = UDP_scan(args.address, args.port)
-    elif args.type == 'icmp':
-        results = ICMP_scan(args.address, args.port)
 
-    print(results)
+    if args.type == 'trace' and (len(args.address) > 1 or len(args.port) > 1):
+        parser.error("Only one address and port allowed with traceroute")
+
+    if not args.address:
+        parser.error("Addresses are needed")
+    if (args.address and not args.port) and (args.type != 'icmp' and args.type != 'trace'):
+        parser.error("Must have both ports and addresses " + args.type + " scan")
+
+#Checks which scan to do and returns the results. These will also show the results on the command line
+
+    results = None
+    html = None
+
+    if args.type == 'tcp':
+        html, results = TCP_scan(args.address, args.port)
+    elif args.type == 'udp':
+        html, results = UDP_scan(args.address, args.port)
+    elif args.type == 'icmp':
+        html, results = ICMP_scan(args.address, args.port)
+    elif args.type == 'trace':
+        html, results = TraceRoute(args.address, args.port)
+
+#Produces the html file if specified
+
+    if args.output:
+        produce_report(args.type, html, args.output)
 
 
 
